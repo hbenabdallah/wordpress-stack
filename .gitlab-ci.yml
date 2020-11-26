@@ -1,0 +1,401 @@
+variables:
+    APP_ENV: "prod"
+    APP_DEBUG: "true"
+    API_DEV_HOST_NAME: ""
+    API_PREPROD_HOST_NAME: ""
+    API_PROD_HOST_NAME: ""
+
+stages:
+    - Setup
+    - Check
+    - Tests
+    - Pre-Package
+    - Package
+    - Staging
+    - Pre-production
+    - Production
+
+#########
+# Setup #
+#########
+composer-dev:
+    stage: Setup
+    image: composer:1.10.17
+    script:
+        - composer update --optimize-autoloader --prefer-dist
+    tags:
+        - docker
+    artifacts:
+        expire_in: 1 hr
+        paths:
+            - vendor/
+    except:
+        - tags
+        - master
+
+composer-prod:
+    stage: Setup
+    image: composer:1.10.17
+    script:
+        - composer update --no-dev --optimize-autoloader --prefer-dist
+        # Missing PHP registry, remove .git sub directories to keep all vendors wih git export
+        - find vendor -type d -name .git -exec rm -rf {} \+
+    tags:
+        - docker
+    artifacts:
+        expire_in: 1 hr
+        paths:
+            - etc/doc/template/
+            - vendor/
+    only:
+        - tags
+        - master
+
+npm:
+    stage: Setup
+    image: node:10.15.3
+    script:
+        - cd etc/node
+        - npm prune
+        - npm install
+    tags:
+        - docker
+    cache:
+        paths:
+            - etc/node/node_modules/
+    artifacts:
+        expire_in: 1 hr
+        paths:
+            - etc/node/node_modules/
+
+#########
+# Check #
+#########
+check-yaml:
+    stage: Check
+    image: php:7.2-cli
+    script:
+        - php vendor/bin/grumphp run --no-ansi --no-interaction --testsuite=check-yaml
+    dependencies:
+        - composer-dev
+    tags:
+        - docker
+    except:
+        - tags
+        - master
+
+check-make:
+    stage: Check
+    image: php:7.2-cli
+    script:
+        - php vendor/bin/grumphp run --no-ansi --no-interaction --testsuite=check-make
+    dependencies:
+        - composer-dev
+    tags:
+        - docker
+    except:
+        - tags
+        - master
+
+check-git:
+    stage: Check
+    image: php:7.2-cli
+    script:
+        - php vendor/bin/grumphp run --no-ansi --no-interaction --testsuite=check-git
+    dependencies:
+        - composer-dev
+    tags:
+        - docker
+    except:
+        - tags
+        - master
+
+check-php-version:
+    stage: Check
+    image: php:7.4-cli
+    script:
+        - php vendor/bin/grumphp run --no-ansi --no-interaction --testsuite=check-php-version
+    dependencies:
+        - composer-dev
+    tags:
+        - docker
+    except:
+        - tags
+        - master
+
+check-php:
+    stage: Check
+    image: php:7.4-cli
+    script:
+        - php vendor/bin/grumphp run --no-ansi --no-interaction --testsuite=check-php
+    dependencies:
+        - composer-dev
+    tags:
+        - docker
+    except:
+        - tags
+        - master
+
+check-php-cpd:
+    stage: Check
+    image: php:7.4-cli
+    script:
+        - php vendor/bin/grumphp run --no-ansi --no-interaction --testsuite=check-php-cpd
+    dependencies:
+        - composer-dev
+    tags:
+        - docker
+    except:
+        - tags
+        - master
+
+check-php-cs:
+    stage: Check
+    image: php:7.4-cli
+    script:
+        - php vendor/bin/grumphp run --no-ansi --no-interaction --testsuite=check-php-cs
+    dependencies:
+        - composer-dev
+    tags:
+        - docker
+    except:
+        - tags
+        - master
+
+#########
+# Tests #
+#########
+units-tests:
+    stage: Tests
+    image: php:7.4-cli
+    script:
+        - php vendor/bin/grumphp run --no-ansi --no-interaction --testsuite=units-tests
+    dependencies:
+        - composer-dev
+    tags:
+        - docker
+    except:
+        - tags
+        - master
+
+###############
+# Pre-Package #
+###############
+configs-deploy:
+    stage: Pre-Package
+    image: docker.autobiz.pro/common/packager
+    script:
+    - mkdir -p ~/.ssh
+    - ssh-keyscan sources.autobiz.pro >> ~/.ssh/known_hosts
+    - echo "$CONFIG_DEPLOY_PRIVATE_KEY" > ~/.ssh/id_rsa && chmod 0600 ~/.ssh/id_rsa && eval `ssh-agent -s` && ssh-add ~/.ssh/id_rsa
+    - git clone --branch master $CONFIG_REPO_SSH_URL config-deploy
+    tags:
+    - docker
+    artifacts:
+        expire_in: 1 hr
+        paths:
+        - config-deploy/
+    only:
+    - master
+    - tags
+
+configs-deploy-tag:
+    stage: Pre-Package
+    image: docker.autobiz.pro/common/packager
+    script:
+        - mkdir -p ~/.ssh
+        - ssh-keyscan sources.autobiz.pro >> ~/.ssh/known_hosts
+        - echo "$CONFIG_DEPLOY_PRIVATE_KEY" > ~/.ssh/id_rsa && chmod 0600 ~/.ssh/id_rsa && eval `ssh-agent -s` && ssh-add ~/.ssh/id_rsa
+        - git clone --branch $CONFIG_VERSION $CONFIG_REPO_SSH_URL config-deploy
+    tags:
+        - docker
+    artifacts:
+        expire_in: 1 hr
+        paths:
+            - config-deploy/
+    only:
+        - tags
+
+###########
+# Package #
+###########
+package-staging:
+    stage: Package
+    image: mirror-ubuntu:16.04
+    environment:
+        name: staging
+    script:
+        - rm -f app/config/parameters.yml
+        - cp -f config-deploy/micro-services/$CI_PROJECT_NAME/staging/parameters.yml app/config/parameters.yml
+        - cp -f config-deploy/micro-services/$CI_PROJECT_NAME/staging/deploy.sh deploy_staging.sh
+        - cp -r -f config-deploy/micro-services/$CI_PROJECT_NAME/staging/delivery .
+        - echo "version $CI_COMMIT_TAG :" $(date +%Y-%m-%d_%Hh-%Mm-%Ss) > VERSION
+        - tar -cvf  $CI_PROJECT_NAME.tar vendor
+        - tar -r -f $CI_PROJECT_NAME.tar app
+        - tar -r -f $CI_PROJECT_NAME.tar src
+        - tar -r -f $CI_PROJECT_NAME.tar web
+        - tar -r -f $CI_PROJECT_NAME.tar var
+        - tar -r -f $CI_PROJECT_NAME.tar template
+        - tar -r -f $CI_PROJECT_NAME.tar VERSION
+        - tar -r -f $CI_PROJECT_NAME.tar LICENSE
+        - mv $CI_PROJECT_NAME.tar deploy_staging.tar
+    cache:
+        paths:
+            - deploy_staging.tar
+            - deploy_staging.sh
+    artifacts:
+        expire_in: 1 hr
+        paths:
+            - deploy_staging.tar
+            - deploy_staging.sh
+    dependencies:
+        - composer-prod
+        - build-doc-staging
+        - configs-deploy
+    tags:
+        - docker
+    only:
+        - master
+
+package-preprod:
+    stage: Package
+    image: mirror-ubuntu:16.04
+    environment:
+        name: preprod
+    script:
+        - rm -f app/config/parameters.yml
+        - cp -f config-deploy/micro-services/$CI_PROJECT_NAME/preprod/parameters.yml app/config/parameters.yml
+        - cp -f config-deploy/micro-services/$CI_PROJECT_NAME/preprod/deploy.sh deploy_preprod.sh
+        - cp -r -f config-deploy/micro-services/$CI_PROJECT_NAME/preprod/delivery .
+        - echo "version $CI_COMMIT_TAG :" $(date +%Y-%m-%d_%Hh-%Mm-%Ss) > VERSION
+        - tar -cvf  $CI_PROJECT_NAME.tar vendor
+        - tar -r -f $CI_PROJECT_NAME.tar app
+        - tar -r -f $CI_PROJECT_NAME.tar src
+        - tar -r -f $CI_PROJECT_NAME.tar web
+        - tar -r -f $CI_PROJECT_NAME.tar var
+        - tar -r -f $CI_PROJECT_NAME.tar template
+        - tar -r -f $CI_PROJECT_NAME.tar VERSION
+        - tar -r -f $CI_PROJECT_NAME.tar LICENSE
+        - mv $CI_PROJECT_NAME.tar deploy_preprod.tar
+    cache:
+        paths:
+            - deploy_preprod.tar
+            - deploy_preprod.sh
+    artifacts:
+        expire_in: 1 hr
+        paths:
+            - deploy_preprod.tar
+            - deploy_preprod.sh
+    dependencies:
+        - composer-prod
+        - build-doc-preprod
+        - configs-deploy
+    tags:
+    - docker
+    only:
+        - tags
+        - master
+
+package-prod:
+    stage: Package
+    image: mirror-ubuntu:16.04
+    environment:
+        name: prod
+    script:
+        - rm -f app/config/parameters.yml
+        - cp -f config-deploy/micro-services/$CI_PROJECT_NAME/prod/parameters.yml app/config/parameters.yml
+        - cp -f config-deploy/micro-services/$CI_PROJECT_NAME/prod/deploy.sh deploy_prod.sh
+        - cp -r -f config-deploy/micro-services/$CI_PROJECT_NAME/prod/delivery .
+        - echo "version $CI_COMMIT_TAG :" $(date +%Y-%m-%d_%Hh-%Mm-%Ss) > VERSION
+        - tar -cvf  $CI_PROJECT_NAME.tar vendor
+        - tar -r -f $CI_PROJECT_NAME.tar app
+        - tar -r -f $CI_PROJECT_NAME.tar src
+        - tar -r -f $CI_PROJECT_NAME.tar web
+        - tar -r -f $CI_PROJECT_NAME.tar var
+        - tar -r -f $CI_PROJECT_NAME.tar template
+        - tar -r -f $CI_PROJECT_NAME.tar VERSION
+        - tar -r -f $CI_PROJECT_NAME.tar LICENSE
+        - mv $CI_PROJECT_NAME.tar deploy_prod.tar
+    cache:
+        paths:
+        - deploy_prod.tar
+        - deploy_prod.sh
+    artifacts:
+        expire_in: 1 hr
+        paths:
+            - deploy_prod.tar
+            - deploy_prod.sh
+    dependencies:
+        - composer-prod
+        - build-doc-prod
+        - configs-deploy-tag
+    tags:
+        - docker
+    only:
+        - tags
+
+###########
+# Deploy #
+###########
+deploy-staging:
+    stage: Staging
+    image: mirror-ubuntu:16.04
+    before_script:
+        - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )'
+        - mkdir -p ~/.ssh
+        - ssh-keyscan -H $DEPLOY_STAGING_SERVER_IP >> ~/.ssh/known_hosts
+        - echo "$DEPLOY_STAGING_SERVER_PRIVATE_KEY" > ~/.ssh/id_rsa && chmod 0600 ~/.ssh/id_rsa && eval `ssh-agent -s` && ssh-add ~/.ssh/id_rsa
+        - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
+    script:
+        - scp -r deploy_staging.tar deploy_staging.sh ${DEPLOY_STAGING_SERVER_USER}@${DEPLOY_STAGING_SERVER_IP}:${DEPLOY_STAGING_SERVER_PATH}/${CI_PROJECT_NAME}
+        - ssh -tt ${DEPLOY_STAGING_SERVER_USER}@${DEPLOY_STAGING_SERVER_IP} "/bin/bash ${DEPLOY_STAGING_SERVER_PATH}/${CI_PROJECT_NAME}/deploy_staging.sh"
+    dependencies:
+        - package-staging
+    tags:
+        - docker
+    only:
+        - master
+
+##################
+# Pre-Production #
+##################
+deploy-preprod:
+    stage: Pre-production
+    image: mirror-ubuntu:16.04
+    before_script:
+        - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )'
+        - mkdir -p ~/.ssh
+        - ssh-keyscan -H $DEPLOY_PREPROD_SERVER_IP >> ~/.ssh/known_hosts
+        - echo "$DEPLOY_PREPROD_SERVER_PRIVATE_KEY" > ~/.ssh/id_rsa && chmod 0600 ~/.ssh/id_rsa && eval `ssh-agent -s` && ssh-add ~/.ssh/id_rsa
+        - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
+    script:
+        - scp -r deploy_preprod.tar deploy_preprod.sh ${DEPLOY_PREPROD_SERVER_USER}@${DEPLOY_PREPROD_SERVER_IP}:${DEPLOY_PREPROD_SERVER_PATH}/${CI_PROJECT_NAME}
+        - ssh -tt ${DEPLOY_PREPROD_SERVER_USER}@${DEPLOY_PREPROD_SERVER_IP} "/bin/bash ${DEPLOY_PREPROD_SERVER_PATH}/${CI_PROJECT_NAME}/deploy_preprod.sh"
+    dependencies:
+        - package-preprod
+    tags:
+        - docker
+    when: manual
+    only:
+        - tags
+        - master
+
+deploy-prod:
+    stage: Production
+    image: mirror-ubuntu:16.04
+    before_script:
+        - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )'
+        - mkdir -p ~/.ssh
+        - ssh-keyscan -H $DEPLOY_PROD_SERVER_IP >> ~/.ssh/known_hosts
+        - echo "$DEPLOY_PROD_SERVER_PRIVATE_KEY" > ~/.ssh/id_rsa && chmod 0600 ~/.ssh/id_rsa && eval `ssh-agent -s` && ssh-add ~/.ssh/id_rsa
+        - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
+    script:
+        - scp -r deploy_prod.tar deploy_prod.sh ${DEPLOY_PROD_SERVER_USER}@${DEPLOY_PROD_SERVER_IP}:${DEPLOY_PROD_SERVER_PATH}/${CI_PROJECT_NAME}
+        - ssh -tt ${DEPLOY_PROD_SERVER_USER}@${DEPLOY_PROD_SERVER_IP} "/bin/bash ${DEPLOY_PROD_SERVER_PATH}/${CI_PROJECT_NAME}/deploy_prod.sh"
+    dependencies:
+        - package-prod
+    tags:
+        - docker
+    when: manual
+    only:
+        - tags

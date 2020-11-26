@@ -1,0 +1,16 @@
+version: '3'
+
+services:
+    nginx-proxy:
+        image: jwilder/nginx-proxy:0.7.0
+        ports:
+            - "80:80"
+            - "443:443"
+        volumes:
+            - /var/run/docker.sock:/tmp/docker.sock:ro
+
+networks:
+   default:
+      ipam:
+         config:
+            - subnet: 172.16.0.0/24

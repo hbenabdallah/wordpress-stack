@@ -1,0 +1,9 @@
+{
+    "values": [
+        {
+            "key": "baseUrl",
+            "value": "{APP_HOST_NAME}",
+            "enabled": true
+        }
+    ]
+}

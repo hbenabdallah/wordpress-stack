@@ -1,0 +1,27 @@
+version: '3'
+#
+#services:
+#    redis:
+#        image: redis:alpine
+#        hostname: redis.shakazoola.local
+#        networks:
+#            - nginx-proxy
+#            - default
+#
+#    rabbitmq:
+#        image: rabbitmq:3.6-management
+#        hostname: rabbitmq.shakazoola.local
+#        ports:
+#            - "5672:5672"
+#            - "15672:15672"
+#        environment:
+#            RABBITMQ_DEFAULT_USER: guest
+#            RABBITMQ_DEFAULT_PASS: guest
+#        networks:
+#            - nginx-proxy
+#            - default
+#
+#networks:
+#    nginx-proxy:
+#        external:
+#            name: ${DOCKER_NETWORK}_default

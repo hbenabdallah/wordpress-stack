@@ -1,0 +1,59 @@
+{
+    "item": [
+        {
+            "name": "homepage",
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                            "pm.response.to.have.status(200);"
+                        ]
+                    }
+                }
+            ],
+            "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                    "raw": "{{baseUrl}}",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [],
+                    "query": []
+                }
+            },
+            "response": []
+        },
+        {
+            "name": "admin",
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                            "pm.response.to.have.status(200);"
+                        ]
+                    }
+                }
+            ],
+            "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                    "raw": "{{baseUrl}}",
+                    "host": ["{{baseUrl}}"],
+                    "path": [
+                        "wp-admin"
+                    ],
+                    "query": []
+                }
+            },
+            "response": []
+        }
+    ],
+    "protocolProfileBehavior": {}
+}

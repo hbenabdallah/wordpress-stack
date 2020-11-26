@@ -1,0 +1,12 @@
+version: '3'
+
+services:
+  newman:
+    image: postman/newman:ubuntu
+    volumes:
+      - ${PWD}/tests/functionals/features/collection.json:/etc/newman/collection.json:rw
+      - ${PWD}/newman.json:/etc/newman/newman.json:rw
+    environment:
+      - USER_ID=${UID}
+      - USER_NAME=${USER_NAME}
+    network_mode: host
